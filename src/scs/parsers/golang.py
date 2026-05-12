@@ -44,7 +44,7 @@ def parse(repo: Repo, files: Iterable[Path]) -> ParseResult:
 def _scan_go_mod(repo: Repo, path: Path, has_sum: bool, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8", errors="replace")
     except Exception as e:
         res.findings.append(Finding(
             severity=Severity.MEDIUM, code="PARSE_ERROR",
@@ -110,7 +110,7 @@ def _check_go_version(repo: Repo, rel: str, module: str, version: str, lineno: i
 def _scan_go_sum(repo: Repo, path: Path, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8", errors="replace")
     except Exception:
         return
     bad = 0

@@ -88,7 +88,7 @@ def walk_node_modules(nm_root: Path) -> tuple[dict[str, str], dict[str, dict]]:
         if rel[-1] != "package.json" or len(rel) - 1 != after:
             continue
         try:
-            data = json.loads(pj.read_text())
+            data = json.loads(pj.read_text(encoding="utf-8", errors="replace"))
         except Exception:
             continue
         name = data.get("name") or slug

@@ -49,7 +49,7 @@ VENDOR_LINE_RE = re.compile(
 
 def _read_vendor_file(path: Path) -> list[tuple[str, str, str]]:
     out: list[tuple[str, str, str]] = []
-    for raw in path.read_text().splitlines():
+    for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
@@ -172,7 +172,7 @@ def _extract_wheel(z: zipfile.ZipFile, name: str, dest_root: Path) -> None:
         for d in top_dirs:
             lic_path = dest_root / d / "_LICENSE.txt"
             if not lic_path.exists():
-                lic_path.write_text(license_text)
+                lic_path.write_text(license_text, encoding="utf-8")
 
 
 def cmd_vendor(args) -> int:
@@ -640,7 +640,7 @@ def cmd_bundle(args) -> int:
         if not mod_name:
             continue
         is_pkg = p.name == "__init__.py"
-        text = _rewrite_module(p.read_text(), mod_name, is_pkg)
+        text = _rewrite_module(p.read_text(encoding="utf-8"), mod_name, is_pkg)
         sources[mod_name] = (text, str(rel), is_pkg)
         if is_pkg:
             package_names.add(mod_name)
@@ -715,7 +715,7 @@ def cmd_bundle(args) -> int:
     parts.append("    from scs.cli import main as _main\n")
     parts.append("    sys.exit(_main())\n")
 
-    out_path.write_text("".join(parts))
+    out_path.write_text("".join(parts), encoding="utf-8")
     out_path.chmod(0o755)
     print(f"bundle: wrote {out_path} ({out_path.stat().st_size // 1024} KiB, {len(sources)} modules)")
     return 0

@@ -146,7 +146,7 @@ def _scan_packages_config(repo: Repo, path: Path, res: ParseResult) -> None:
 def _scan_packages_lock(repo: Repo, path: Path, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
     except Exception:
         return
     for tfm, deps in (data.get("dependencies") or {}).items():

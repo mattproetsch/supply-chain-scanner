@@ -67,7 +67,7 @@ def parse(repo: Repo, files: Iterable[Path]) -> ParseResult:
 def _scan_package_json(repo: Repo, path: Path, dir_entries: dict[str, Path], res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
     except Exception as e:
         res.findings.append(Finding(
             severity=Severity.MEDIUM, code="PARSE_ERROR",
@@ -149,7 +149,7 @@ def _classify_npm_spec(spec: str) -> tuple[Severity, str, str] | None:
 def _scan_package_lock(repo: Repo, path: Path, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
     except Exception as e:
         res.findings.append(Finding(
             severity=Severity.MEDIUM, code="PARSE_ERROR",
@@ -239,7 +239,7 @@ YARN_HEADER_RE = re.compile(r'^("?(?P<keys>[^"\n]+)"?:)\s*$')
 def _scan_yarn_lock(repo: Repo, path: Path, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8", errors="replace")
     except Exception as e:
         res.findings.append(Finding(
             severity=Severity.MEDIUM, code="PARSE_ERROR",
@@ -332,7 +332,7 @@ def _parse_yarn_v1(repo: Repo, rel: str, text: str, res: ParseResult) -> None:
 def _scan_pnpm_lock(repo: Repo, path: Path, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8", errors="replace")
     except Exception as e:
         res.findings.append(Finding(
             severity=Severity.MEDIUM, code="PARSE_ERROR",

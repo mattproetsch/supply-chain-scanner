@@ -48,7 +48,7 @@ def parse(repo: Repo, files: Iterable[Path]) -> ParseResult:
 def _scan_cargo_toml(repo: Repo, path: Path, has_lockfile: bool, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        data = tomli.loads(path.read_text())
+        data = tomli.loads(path.read_text(encoding="utf-8", errors="replace"))
     except Exception as e:
         res.findings.append(Finding(
             severity=Severity.MEDIUM, code="PARSE_ERROR",
@@ -113,7 +113,7 @@ def _classify_cargo(name: str, spec) -> tuple[Severity, str, str] | None:
 def _scan_cargo_lock(repo: Repo, path: Path, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        data = tomli.loads(path.read_text())
+        data = tomli.loads(path.read_text(encoding="utf-8", errors="replace"))
     except Exception:
         return
     for pkg in data.get("package") or []:

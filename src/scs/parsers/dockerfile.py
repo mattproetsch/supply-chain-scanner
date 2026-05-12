@@ -43,7 +43,7 @@ def parse(repo: Repo, files: Iterable[Path]) -> ParseResult:
 def _scan(repo: Repo, path: Path, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8", errors="replace")
     except Exception as e:
         res.findings.append(Finding(
             severity=Severity.MEDIUM, code="PARSE_ERROR",

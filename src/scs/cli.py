@@ -115,13 +115,13 @@ def _do_scan(args) -> int:
     )
     out_path = Path(args.out).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(html)
+    out_path.write_text(html, encoding="utf-8")
     print(f"scs: wrote report to {out_path}")
 
     if args.json_out:
         jp = Path(args.json_out).resolve()
         jp.parent.mkdir(parents=True, exist_ok=True)
-        jp.write_text(json.dumps(_json_dump(reports), indent=2, default=str))
+        jp.write_text(json.dumps(_json_dump(reports), indent=2, default=str), encoding="utf-8")
         print(f"scs: wrote JSON to {jp}")
 
     # Print short summary

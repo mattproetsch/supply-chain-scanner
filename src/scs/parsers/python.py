@@ -82,7 +82,7 @@ def parse(repo: Repo, files: Iterable[Path]) -> ParseResult:
 def _scan_requirements_txt(repo: Repo, path: Path, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8", errors="replace")
     except Exception as e:
         res.findings.append(Finding(
             severity=Severity.MEDIUM, code="PARSE_ERROR",
@@ -198,7 +198,7 @@ def _scan_requirements_txt(repo: Repo, path: Path, res: ParseResult) -> None:
 def _scan_pyproject(repo: Repo, path: Path, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        data = tomli.loads(path.read_text())
+        data = tomli.loads(path.read_text(encoding="utf-8", errors="replace"))
     except Exception as e:
         res.findings.append(Finding(
             severity=Severity.MEDIUM, code="PARSE_ERROR",
@@ -317,7 +317,7 @@ def _check_poetry(repo: Repo, rel: str, name: str, spec, res: ParseResult, kind:
 def _scan_pipfile(repo: Repo, path: Path, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        data = tomli.loads(path.read_text())
+        data = tomli.loads(path.read_text(encoding="utf-8", errors="replace"))
     except Exception:
         return
     for kind in ("packages", "dev-packages"):
@@ -343,7 +343,7 @@ def _scan_pipfile(repo: Repo, path: Path, res: ParseResult) -> None:
 def _scan_pipfile_lock(repo: Repo, path: Path, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
     except Exception:
         return
     for section in ("default", "develop"):
@@ -369,7 +369,7 @@ def _scan_pipfile_lock(repo: Repo, path: Path, res: ParseResult) -> None:
 def _scan_poetry_lock(repo: Repo, path: Path, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        data = tomli.loads(path.read_text())
+        data = tomli.loads(path.read_text(encoding="utf-8", errors="replace"))
     except Exception:
         return
     for pkg in data.get("package") or []:
@@ -386,7 +386,7 @@ def _scan_poetry_lock(repo: Repo, path: Path, res: ParseResult) -> None:
 def _scan_uv_lock(repo: Repo, path: Path, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        data = tomli.loads(path.read_text())
+        data = tomli.loads(path.read_text(encoding="utf-8", errors="replace"))
     except Exception:
         return
     for pkg in data.get("package") or []:
@@ -419,7 +419,7 @@ SETUP_REQ_STR_RE = re.compile(r"['\"]([^'\"]+)['\"]")
 def _scan_setup_py(repo: Repo, path: Path, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8", errors="replace")
     except Exception:
         return
     m = INSTALL_REQUIRES_RE.search(text)
