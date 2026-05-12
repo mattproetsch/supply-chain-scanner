@@ -103,8 +103,11 @@ class TestFindingsTableLayout(unittest.TestCase):
             advisory_id="OSV-2018-foo",
         ))
         html = render_html([rep])
-        m = _re.search(r"<tbody>(.+?)</tbody>", html, _re.DOTALL)
-        body = m.group(1) if m else ""
+        # Target the findings table specifically — there's also a sidebar
+        # meta-table whose <tbody> would match a naive regex.
+        m = _re.search(r'<table class="findings">.*?<tbody>(.+?)</tbody>', html, _re.DOTALL)
+        self.assertIsNotNone(m, "expected a findings table in the report")
+        body = m.group(1)
         # First data row (not the .expand-row)
         rows = _re.findall(r"<tr(?![^>]*expand-row)[^>]*>(.+?)</tr>", body, _re.DOTALL)
         self.assertTrue(rows, "expected at least one finding row")
