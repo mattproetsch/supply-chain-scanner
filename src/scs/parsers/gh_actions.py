@@ -70,7 +70,13 @@ def _scan_workflow(repo: Repo, path: Path, res: ParseResult) -> None:
         else:
             s_uses = None
         if s_uses is not None:
-            val = s_uses.strip().strip("'\"")
+            val = s_uses.strip()
+            # Strip trailing inline `\s+#…` BEFORE stripping outer quotes — a
+            # `#` inside a quoted value isn't a comment.  The common pattern
+            # this enables: `uses: foo/bar@<sha>  # v2` → ref `<sha>`.
+            if not (val.startswith(("'", '"')) and val.endswith(val[:1])):
+                val = re.sub(r"\s+#.*$", "", val).rstrip()
+            val = val.strip("'\"")
             if val:
                 line_uses.append((i, val))
         elif s.startswith("run:"):

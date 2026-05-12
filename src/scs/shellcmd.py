@@ -41,6 +41,13 @@ def split_pipeline(line: str) -> list[list[str]]:
         return []
     # Replace literal `\<newline>` with space (for Dockerfile multi-line RUN already joined)
     line = re.sub(r"\\\s*\n\s*", " ", line)
+    # Strip trailing inline `# comment` — shlex.posix does NOT treat `#` as a
+    # comment, so `npm install # foo` would otherwise tokenize to 4 args and
+    # we'd misclassify (or pick up `# foo` as a positional).  Comment must
+    # follow whitespace so we don't shred URL fragments inside arguments.
+    line = re.sub(r"(^|\s)#.*$", lambda m: m.group(1), line).rstrip()
+    if not line:
+        return []
     # Split by separators that *terminate* a command. We treat `|` like a separator
     # but preserve curl|sh detection by also returning the joined line for matching.
     parts = re.split(r"\s*(?:&&|;|\|\||\|)\s*", line)

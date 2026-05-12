@@ -1,0 +1,118 @@
+name: Release
+
+# Build dist/scs.py and dist/scs-malware-db.bin and attach them as a GitHub
+# Release. Triggered on `v*` tag pushes; also runnable manually for dry runs
+# (which only upload the artifacts to the workflow run, no Release created).
+#
+# Nothing is ever committed back to the repo — artifacts live in Releases /
+# workflow artifacts only.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # gh release create
+
+# Cancel in-flight runs on the same ref to avoid racing two releases.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build & release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Pinned to commit SHA — eat our own dogfood (per scs's own ACTION_UNPINNED_REF rule).
+      # To bump: look up the SHA the tag points at, e.g.
+      #   curl -sL https://api.github.com/repos/actions/checkout/git/ref/tags/v4 | jq .object.sha
+      - name: Checkout (recursive — needed for OSSF malicious-packages submodule)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: '3.13'
+
+      - name: Show toolchain
+        run: |
+          python3.13 --version
+          make --version | head -1
+
+      - name: Lint
+        run: make PY=python3.13 lint
+
+      - name: Tests
+        run: make PY=python3.13 test
+
+      - name: Vendor + bundle scanner
+        run: make PY=python3.13 build
+
+      - name: Build malware DB
+        run: make PY=python3.13 malware-db
+
+      - name: Compute checksums
+        working-directory: dist
+        run: |
+          sha256sum scs.py scs-malware-db.bin | tee SHA256SUMS
+          ls -la
+
+      # Always uploaded — useful for workflow_dispatch dry runs and for
+      # debugging tag-push failures before the Release step.
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: scs-${{ github.ref_name }}
+          path: |
+            dist/scs.py
+            dist/scs-malware-db.bin
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Compose release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          {
+            echo "## scs ${GITHUB_REF_NAME}"
+            echo
+            echo "Single-file Python scanner for supply-chain exposure across npm, PyPI, Cargo, Go, NuGet, GitHub Actions, GitLab CI, and Dockerfiles."
+            echo
+            echo "### Artifacts"
+            echo "- \`scs.py\` — bundled scanner (vendored, hash-pinned, pure-Python)."
+            echo "- \`scs-malware-db.bin\` — offline OSSF malicious-packages signature DB."
+            echo "- \`SHA256SUMS\` — verify with \`sha256sum -c SHA256SUMS\`."
+            echo
+            echo "### Quick start"
+            echo '```sh'
+            echo "curl -fsSL -o scs.py https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/scs.py"
+            echo "curl -fsSL -o scs-malware-db.bin https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/scs-malware-db.bin"
+            echo "curl -fsSL -o SHA256SUMS https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/SHA256SUMS"
+            echo "sha256sum -c SHA256SUMS"
+            echo "chmod +x scs.py"
+            echo "./scs.py scan /path/to/repo --malware-db ./scs-malware-db.bin --out report.html"
+            echo '```'
+            echo
+            echo "### Checksums"
+            echo '```'
+            cat dist/SHA256SUMS
+            echo '```'
+          } > release-notes.md
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "scs ${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md \
+            dist/scs.py \
+            dist/scs-malware-db.bin \
+            dist/SHA256SUMS

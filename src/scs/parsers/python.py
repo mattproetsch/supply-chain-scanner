@@ -97,9 +97,10 @@ def _scan_requirements_txt(repo: Repo, path: Path, res: ParseResult) -> None:
         if not buf:
             start_lineno = i
         ln = raw.rstrip()
-        # Strip inline comment (after un-quoted #)
-        if "#" in ln:
-            ln = ln.split("#", 1)[0].rstrip()
+        # Strip inline comments — PEP 508 / pip require ` #` (whitespace before
+        # `#`). Bare `#` is part of a URL fragment (`git+https://…#egg=foo`,
+        # `…#sha256=…`) and must NOT be treated as a comment.
+        ln = re.sub(r"\s+#.*$", "", ln)
         if ln.endswith("\\"):
             buf += ln[:-1] + " "
             continue

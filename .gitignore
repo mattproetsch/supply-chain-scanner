@@ -23,3 +23,6 @@ src/scs/_vendor/packaging/
 .vscode/
 *.swp
 .DS_Store
+
+# Default --out from scs scan when run in repo root
+scs-report.html

@@ -21,6 +21,14 @@ from scs import shellcmd
 SHA40 = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
+def _strip_inline_comment(s: str) -> str:
+    """Strip `\\s+#…` from a YAML scalar value (after stripping outer quotes).
+
+    Bare `#` is fine inside the value (e.g., URL fragments); only whitespace
+    followed by `#` starts a comment per YAML spec."""
+    return re.sub(r"\s+#.*$", "", s).rstrip()
+
+
 def matches(rel_path: str) -> bool:
     p = Path(rel_path)
     if p.name == ".gitlab-ci.yml":
@@ -53,12 +61,12 @@ def _scan(repo: Repo, path: Path, res: ParseResult) -> None:
     for i, raw in enumerate(lines, 1):
         s = raw.strip()
         if s.startswith("image:"):
-            val = s[6:].strip().strip("'\"")
+            val = _strip_inline_comment(s[6:].strip()).strip("'\"")
             if val and not val.startswith("$"):
                 _check_image(rel, i, val, res)
         elif s.startswith("- ref:") or s.startswith("ref:"):
             # Inside an `include:` mapping — best-effort
-            val = s.split(":", 1)[1].strip().strip("'\"")
+            val = _strip_inline_comment(s.split(":", 1)[1].strip()).strip("'\"")
             if val and not SHA40.match(val) and val not in ("main", "master") and not re.fullmatch(r"v?\d+(?:\.\d+){0,2}(?:-[\w.\-+]+)?", val):
                 pass  # treat below
             if val and not SHA40.match(val):
