@@ -45,6 +45,26 @@ jobs:
           python3.13 --version
           make --version | head -1
 
+      - name: Stamp version from git ref
+        # Tag pushes (`v0.1.2`) → `__version__ = "0.1.2"`.
+        # Manual dispatch / non-tag → `0.0.0+<short-sha>` so binaries are still
+        # uniquely identifiable.
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" =~ ^v ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.0.0+${GITHUB_SHA::7}"
+          fi
+          echo "Stamping __version__ = \"$VERSION\""
+          python3.13 -c "
+          import pathlib, re
+          p = pathlib.Path('src/scs/version.py')
+          t = p.read_text(encoding='utf-8')
+          t = re.sub(r'^__version__\s*=.*$', f'__version__ = \"$VERSION\"', t, count=1, flags=re.M)
+          p.write_text(t, encoding='utf-8')
+          print(t.splitlines()[0])
+          "
+
       - name: Lint
         run: make PY=python3.13 lint
 

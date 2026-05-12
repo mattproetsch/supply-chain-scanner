@@ -69,9 +69,20 @@ def _do_scan(args) -> int:
     # Malware DB
     malware_db: Optional[MalwareDB] = None
     malware_db_status = ""
+    load_errors: list[str] = []
+
+    def _on_db_error(path, err):
+        load_errors.append(f"  {path}: {type(err).__name__}: {err}")
+
     if not args.no_malware_db:
         sibling = Path(sys.argv[0]).resolve() if sys.argv and sys.argv[0] else None
-        malware_db = auto_load(args.malware_db, sibling_to=sibling)
+        try:
+            malware_db = auto_load(args.malware_db, sibling_to=sibling, on_error=_on_db_error)
+        except Exception as e:
+            print(f"scs: malware DB error: {e}", file=sys.stderr)
+            if args.require_malware_db:
+                return 3
+            malware_db_status = f"Malware DB FAILED to load: {e}"
         if malware_db:
             malware_db_status = (
                 f"Malware DB loaded: {malware_db.path} "
@@ -80,14 +91,22 @@ def _do_scan(args) -> int:
             )
             if malware_db.stale_days() > 30:
                 malware_db_status += " — STALE: re-run `make update-malware-data && make malware-db`"
-        elif args.require_malware_db:
-            print("scs: --require-malware-db set but no DB found", file=sys.stderr)
-            return 3
-        else:
-            malware_db_status = (
-                "No malware DB loaded. Pass --malware-db PATH or build one with `make malware-db` "
-                "to enable offline malicious-package detection."
-            )
+        elif not malware_db_status:
+            if args.require_malware_db:
+                print("scs: --require-malware-db set but no DB found", file=sys.stderr)
+                if load_errors:
+                    print("scs: candidate DBs that existed but failed to open:\n" + "\n".join(load_errors), file=sys.stderr)
+                return 3
+            if load_errors:
+                malware_db_status = (
+                    "Malware DB FAILED to load — candidate(s) existed but couldn't be opened:\n"
+                    + "\n".join(load_errors)
+                )
+            else:
+                malware_db_status = (
+                    "No malware DB loaded. Pass --malware-db PATH or build one with `make malware-db` "
+                    "to enable offline malicious-package detection."
+                )
 
     # Scan repos in parallel
     reports: list[RepoReport] = []
