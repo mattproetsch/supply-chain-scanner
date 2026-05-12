@@ -198,8 +198,19 @@ section.repo + section.repo { margin-top: 56px; padding-top: 32px; border-top: 1
 table.findings {
   border-collapse: collapse;
   width: 100%;
-  min-width: 720px;             /* sane floor below which we just scroll */
+  min-width: 880px;             /* below this we just scroll horizontally */
+  table-layout: fixed;          /* respect column widths */
 }
+/* Per-column widths.  Order matches the <th data-col="N">: */
+/*   0 Severity | 1 Code | 2 Title | 3 Package | 4 Spec | 5 Location | 6 Toggle */
+table.findings col.col-sev      { width: 88px; }
+table.findings col.col-code     { width: 180px; }
+table.findings col.col-title    { width: auto; }   /* takes remaining space */
+table.findings col.col-pkg      { width: 200px; }
+table.findings col.col-spec     { width: 150px; }
+table.findings col.col-loc      { width: 200px; }
+table.findings col.col-toggle   { width: 34px; }
+
 table.findings th, table.findings td {
   text-align: left;
   padding: var(--table-pad) calc(var(--table-pad) * 1.2);
@@ -217,6 +228,21 @@ table.findings tr.expand-row td {
   padding: 12px 24px;
   color: var(--fg);
   border-top: 1px dashed var(--border);
+}
+/* Two-line clamp on Code/Package/Spec/Location cells: most fit on one line;
+   long values get a second line + ellipsis instead of wrapping forever. */
+table.findings td.clamp2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+table.findings td.clamp2 code {
+  display: inline;             /* let code inherit clamp from parent */
+  word-break: break-all;
 }
 .fix-block {
   margin-top: 8px;

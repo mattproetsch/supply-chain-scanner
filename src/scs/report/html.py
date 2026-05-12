@@ -223,14 +223,22 @@ def _card(num: int, label: str, cls: str = "") -> str:
 
 def _render_findings_table(findings: list[Finding]) -> str:
     rows = []
+    NCOLS = 7  # Severity, Code, Title, Package, Spec, Location, Toggle
     for f in sorted(findings, key=lambda x: x.sort_key()):
         loc = f"{html.escape(f.file)}{':' + str(f.line) if f.line else ''}"
-        adv = ""
+
+        # Advisory link goes into the expander row now (table is too dense to
+        # keep it as a column).
+        adv_link = ""
         if f.advisory_id:
             url = f.advisory_url or f"https://osv.dev/vulnerability/{f.advisory_id}"
-            adv = f'<a href="{html.escape(url)}" target="_blank" rel="noopener noreferrer">{html.escape(f.advisory_id)}</a>'
+            adv_link = (
+                f'<div class="chain-row"><strong>Advisory:</strong> '
+                f'<a href="{html.escape(url)}" target="_blank" rel="noopener noreferrer">'
+                f'{html.escape(f.advisory_id)}</a></div>'
+            )
 
-        # Build expandable detail (always present — chain, detail text, suggestion).
+        # Build expandable detail (chain, detail text, aliases, advisory, suggestion).
         chain_str = " → ".join(f.chain) + (" → " + f.package if f.chain else "")
         detail_blocks = []
         if f.detail:
@@ -245,6 +253,8 @@ def _render_findings_table(findings: list[Finding]) -> str:
                 f'<div class="chain-row"><strong>Aliases:</strong> '
                 + ", ".join(html.escape(a) for a in f.aliases) + '</div>'
             )
+        if adv_link:
+            detail_blocks.append(adv_link)
         if f.suggestion:
             detail_blocks.append(
                 f'<div class="fix-block"><span class="label">Suggested fix</span>\n{html.escape(f.suggestion)}</div>'
@@ -255,22 +265,30 @@ def _render_findings_table(findings: list[Finding]) -> str:
         rows.append(
             '<tr>'
             f'<td><span class="sev sev-{f.severity.name}">{f.severity.name}</span></td>'
-            f'<td><code>{html.escape(f.code)}</code></td>'
+            f'<td class="clamp2"><code>{html.escape(f.code)}</code></td>'
             f'<td>{html.escape(f.title)}</td>'
-            f'<td><code>{html.escape(f.package)}</code></td>'
-            f'<td><code>{html.escape(f.spec or f.resolved_version)}</code></td>'
-            f'<td class="mono">{loc}</td>'
-            f'<td>{adv}</td>'
+            f'<td class="clamp2"><code>{html.escape(f.package)}</code></td>'
+            f'<td class="clamp2"><code>{html.escape(f.spec or f.resolved_version)}</code></td>'
+            f'<td class="clamp2 mono">{loc}</td>'
             f'<td>{toggle}</td>'
             '</tr>'
         )
         if has_detail:
             rows.append(
-                f'<tr class="expand-row"><td colspan="8">' + "\n".join(detail_blocks) + '</td></tr>'
+                f'<tr class="expand-row"><td colspan="{NCOLS}">' + "\n".join(detail_blocks) + '</td></tr>'
             )
 
     return (
         '<div class="table-wrap"><table class="findings">'
+        '<colgroup>'
+        '<col class="col-sev">'
+        '<col class="col-code">'
+        '<col class="col-title">'
+        '<col class="col-pkg">'
+        '<col class="col-spec">'
+        '<col class="col-loc">'
+        '<col class="col-toggle">'
+        '</colgroup>'
         '<thead><tr>'
         '<th data-col="0">Severity</th>'
         '<th data-col="1">Code</th>'
@@ -278,7 +296,6 @@ def _render_findings_table(findings: list[Finding]) -> str:
         '<th data-col="3">Package</th>'
         '<th data-col="4">Spec / Version</th>'
         '<th data-col="5">Location</th>'
-        '<th data-col="6">Advisory</th>'
         '<th></th>'
         '</tr></thead>'
         '<tbody>' + "\n".join(rows) + '</tbody>'
