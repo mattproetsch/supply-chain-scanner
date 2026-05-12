@@ -1,0 +1,12 @@
+[package]
+name = "fixture-rust-floating"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+serde = "1.0"
+tokio = { version = "1", features = ["full"] }
+rand = "=0.8.5"
+
+[dev-dependencies]
+proptest = "1.0"

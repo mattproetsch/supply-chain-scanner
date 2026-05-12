@@ -1,0 +1,6 @@
+requests
+flask>=2.0
+django==4.2.7
+numpy~=1.24
+git+https://github.com/example/foo.git@main
+sqlalchemy==2.0.25 --hash=sha256:0000000000000000000000000000000000000000000000000000000000000000
