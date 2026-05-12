@@ -287,16 +287,23 @@ def _iter_osv_records(src: Path) -> Iterable[tuple[int, str, str, str, str]]:
 import hashlib as _hl
 
 
+# NOTE: do NOT pass salt=/person= kwargs to blake2b — OpenSSL-backed builds
+# (FIPS, RHEL, some conda images) reject those kwargs.  Fold the parameters
+# into the hashed data instead.  Must mirror malware_db._h0/_h1 exactly.
 def _h0(key: bytes, seed: int, n_buckets: int) -> int:
-    h = _hl.blake2b(digest_size=8, person=b"scs-h0", salt=struct.pack("<Q", seed)[:8])
+    h = _hl.blake2b(digest_size=8)
+    h.update(b"scs-h0\x00\x00")
+    h.update(struct.pack("<Q", seed))
     h.update(key)
     return int.from_bytes(h.digest(), "little") % n_buckets
 
 
 def _h1(key: bytes, seed: int, displacement: int, table_size: int) -> int:
-    h = _hl.blake2b(digest_size=8, person=b"scs-h1", salt=struct.pack("<Q", seed)[:8])
-    h.update(key)
+    h = _hl.blake2b(digest_size=8)
+    h.update(b"scs-h1\x00\x00")
+    h.update(struct.pack("<Q", seed))
     h.update(struct.pack("<I", displacement))
+    h.update(key)
     return int.from_bytes(h.digest(), "little") % table_size
 
 
@@ -454,7 +461,7 @@ def cmd_compact_malware_db(args) -> int:
     payload_sha256 = hashlib.sha256(payload).digest()
 
     header = bytearray(HEADER_SIZE)
-    header[0:8] = b"SCSMALW3"
+    header[0:8] = b"SCSMALW4"
     struct.pack_into("<H", header, 8, 1)                            # format_version
     struct.pack_into("<I", header, 10, len(rows))                   # entry_count
     struct.pack_into("<I", header, 14, len(keys))                   # keys_count

@@ -215,15 +215,23 @@ def _scan_repo(root: Path, include: Optional[set[str]], excludes: list[str], mal
             title="Install-tree introspection failed", file="", detail=str(e),
         ))
 
-    # Cross-reference malware DB
+    # Cross-reference malware DB.  We isolate per-package failures so a single
+    # broken lookup (e.g. a hashing-backend incompatibility we missed) can't
+    # nuke the whole repo's report.
     if malware_db:
         seen_keys: set[tuple[str, str, str]] = set()
+        first_error: Optional[str] = None
         for d in all_resolved:
             k = (d.ecosystem, d.name, d.version)
             if k in seen_keys:
                 continue
             seen_keys.add(k)
-            adv = malware_db.lookup_str(d.ecosystem, d.name, d.version)
+            try:
+                adv = malware_db.lookup_str(d.ecosystem, d.name, d.version)
+            except Exception as e:
+                if first_error is None:
+                    first_error = f"{type(e).__name__}: {e}"
+                continue
             if adv:
                 rep.findings.append(Finding(
                     severity=Severity.CRITICAL, code="MALWARE",
@@ -233,6 +241,12 @@ def _scan_repo(root: Path, include: Optional[set[str]], excludes: list[str], mal
                     advisory_url=adv.url, aliases=adv.aliases, chain=d.chain,
                     detail=("OSSF malicious-packages match" + (f" (dep chain depth {len(d.chain)})" if d.chain else "")),
                 ))
+        if first_error:
+            rep.findings.append(Finding(
+                severity=Severity.LOW, code="MALWARE_LOOKUP_ERROR",
+                title="Malware DB lookup failed for one or more packages",
+                file="", detail=first_error,
+            ))
 
     # Live OSV enrichment
     if not offline and all_resolved:
