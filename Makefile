@@ -32,7 +32,7 @@ dist: build malware-db
 update-malware-data:
 	git submodule update --remote github.com--ossf--malicious-packages
 
-test:
+test: vendor
 	PYTHONPATH=src:tests $(PY) -m unittest discover -s tests -v
 
 smoke: build
