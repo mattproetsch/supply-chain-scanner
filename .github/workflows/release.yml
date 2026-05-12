@@ -45,6 +45,30 @@ jobs:
           python3.13 --version
           make --version | head -1
 
+      - name: Update OSSF malicious-packages to upstream HEAD
+        # Pin in the repo is just a starting point — every release should
+        # ship the newest signatures available at build time.  If the
+        # upstream fetch fails (network issue), we fall back to the pinned
+        # revision rather than aborting the release.
+        id: ossf
+        run: |
+          set -e
+          SUBMOD=github.com--ossf--malicious-packages
+          PRE_SHA=$(git -C $SUBMOD rev-parse HEAD)
+          if git submodule update --remote --recursive $SUBMOD; then
+            POST_SHA=$(git -C $SUBMOD rev-parse HEAD)
+            POST_DATE=$(git -C $SUBMOD log -1 --format=%cI HEAD)
+            echo "Updated OSSF submodule: $PRE_SHA → $POST_SHA"
+            echo "Upstream commit dated: $POST_DATE"
+          else
+            POST_SHA="$PRE_SHA"
+            POST_DATE=$(git -C $SUBMOD log -1 --format=%cI HEAD)
+            echo "WARN: submodule update failed; using pinned revision $PRE_SHA"
+          fi
+          echo "ossf_sha=$POST_SHA" >> "$GITHUB_OUTPUT"
+          echo "ossf_short=${POST_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "ossf_date=$POST_DATE" >> "$GITHUB_OUTPUT"
+
       - name: Stamp version from git ref
         # Tag pushes (`v0.1.2`) → `__version__ = "0.1.2"`.
         # Manual dispatch / non-tag → `0.0.0+<short-sha>` so binaries are still
@@ -98,6 +122,10 @@ jobs:
 
       - name: Compose release notes
         if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          OSSF_SHA: ${{ steps.ossf.outputs.ossf_sha }}
+          OSSF_SHORT: ${{ steps.ossf.outputs.ossf_short }}
+          OSSF_DATE: ${{ steps.ossf.outputs.ossf_date }}
         run: |
           {
             echo "## scs ${GITHUB_REF_NAME}"
@@ -108,6 +136,11 @@ jobs:
             echo "- \`scs.py\` — bundled scanner (vendored, hash-pinned, pure-Python)."
             echo "- \`scs-malware-db.bin\` — offline OSSF malicious-packages signature DB."
             echo "- \`SHA256SUMS\` — verify with \`sha256sum -c SHA256SUMS\`."
+            echo
+            echo "### Signature data"
+            echo "Built from \`ossf/malicious-packages\` commit"
+            echo "[\`${OSSF_SHORT}\`](https://github.com/ossf/malicious-packages/commit/${OSSF_SHA})"
+            echo "(${OSSF_DATE})."
             echo
             echo "### Quick start"
             echo '```sh'
