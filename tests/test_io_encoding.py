@@ -86,5 +86,58 @@ class TestNpmParserUnicode(unittest.TestCase):
             self.assertEqual(errs, [], f"parse error: {errs}")
 
 
+class TestFindingsTableLayout(unittest.TestCase):
+    """Regression: in v0.1.4 the table cells had `class="clamp2"` directly
+    on the <td>, which combined with `display:-webkit-box` made browsers
+    drop the cells out of the column layout and stack values vertically
+    inside one cell.  The clamp now lives on an inner <div>; each cell
+    must remain a real table cell with the correct content."""
+
+    def test_each_row_has_seven_distinct_cells(self):
+        import re as _re
+        rep = RepoReport(name="x", path="/x", ecosystems=["npm"])
+        rep.findings.append(Finding(
+            severity=Severity.HIGH, code="UNPINNED_DIRECT",
+            title="floating spec", file="package.json", line=3,
+            ecosystem="npm", package="left-pad", spec="^1.0.0",
+            advisory_id="OSV-2018-foo",
+        ))
+        html = render_html([rep])
+        m = _re.search(r"<tbody>(.+?)</tbody>", html, _re.DOTALL)
+        body = m.group(1) if m else ""
+        # First data row (not the .expand-row)
+        rows = _re.findall(r"<tr(?![^>]*expand-row)[^>]*>(.+?)</tr>", body, _re.DOTALL)
+        self.assertTrue(rows, "expected at least one finding row")
+        row = rows[0]
+        tds = _re.findall(r"<td[^>]*>.*?</td>", row, _re.DOTALL)
+        self.assertEqual(len(tds), 7, f"row should have 7 <td>s, got {len(tds)}: {tds}")
+
+        def text(td):
+            return _re.sub(r"<[^>]+>", "", td).strip()
+
+        self.assertIn("HIGH", text(tds[0]))
+        self.assertIn("UNPINNED_DIRECT", text(tds[1]))
+        self.assertIn("floating spec", text(tds[2]))
+        self.assertIn("left-pad", text(tds[3]))
+        self.assertIn("1.0.0", text(tds[4]))
+        self.assertIn("package.json", text(tds[5]))
+        # 6th (toggle) just contains the ▶ char
+        self.assertIn("▶", tds[6])
+
+    def test_clamp2_is_on_inner_div_not_td(self):
+        """If `display: -webkit-box` lands on a <td>, the browser collapses
+        the cells.  Make sure no <td> has class="clamp2" directly."""
+        import re as _re
+        rep = RepoReport(name="x", path="/x", ecosystems=["npm"])
+        rep.findings.append(Finding(
+            severity=Severity.HIGH, code="UNPINNED_DIRECT",
+            title="t", file="f", ecosystem="npm", package="p", spec="*",
+        ))
+        html = render_html([rep])
+        self.assertNotRegex(html, r'<td[^>]*class="[^"]*\bclamp2\b')
+        # And the inner div MUST exist
+        self.assertIn('<div class="clamp2">', html)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -265,11 +265,11 @@ def _render_findings_table(findings: list[Finding]) -> str:
         rows.append(
             '<tr>'
             f'<td><span class="sev sev-{f.severity.name}">{f.severity.name}</span></td>'
-            f'<td class="clamp2"><code>{html.escape(f.code)}</code></td>'
-            f'<td>{html.escape(f.title)}</td>'
-            f'<td class="clamp2"><code>{html.escape(f.package)}</code></td>'
-            f'<td class="clamp2"><code>{html.escape(f.spec or f.resolved_version)}</code></td>'
-            f'<td class="clamp2 mono">{loc}</td>'
+            f'<td><div class="clamp2"><code>{html.escape(f.code)}</code></div></td>'
+            f'<td><div class="clamp2">{html.escape(f.title)}</div></td>'
+            f'<td><div class="clamp2"><code>{html.escape(f.package)}</code></div></td>'
+            f'<td><div class="clamp2"><code>{html.escape(f.spec or f.resolved_version)}</code></div></td>'
+            f'<td class="mono"><div class="clamp2">{loc}</div></td>'
             f'<td>{toggle}</td>'
             '</tr>'
         )

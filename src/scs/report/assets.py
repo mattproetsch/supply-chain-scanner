@@ -229,9 +229,11 @@ table.findings tr.expand-row td {
   color: var(--fg);
   border-top: 1px dashed var(--border);
 }
-/* Two-line clamp on Code/Package/Spec/Location cells: most fit on one line;
-   long values get a second line + ellipsis instead of wrapping forever. */
-table.findings td.clamp2 {
+/* Two-line clamp on Code/Package/Spec/Location cells.  We wrap cell
+   content in a <div class="clamp2"> rather than applying the clamp to the
+   <td> itself — `display: -webkit-box` on a table cell strips its
+   table-cell layout and collapses all such cells into one slot. */
+table.findings .clamp2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -239,9 +241,11 @@ table.findings td.clamp2 {
   overflow: hidden;
   word-break: break-word;
   overflow-wrap: anywhere;
+  /* Reserve at least one line of vertical space so single-line cells
+     align with their multi-line neighbors. */
+  min-height: 1.4em;
 }
-table.findings td.clamp2 code {
-  display: inline;             /* let code inherit clamp from parent */
+table.findings .clamp2 code {
   word-break: break-all;
 }
 .fix-block {
