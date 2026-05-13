@@ -174,6 +174,113 @@ class TestDotnet(unittest.TestCase):
         self.assertIn("Newtonsoft.Json", unpinned)  # 13.0.*
         self.assertIn("AutoMapper", unpinned)        # [12.0,13.0) range
         self.assertNotIn("Serilog", unpinned)        # 3.1.1 exact
+        # No-Version PackageReference in a non-CPM repo → still UNPINNED_DIRECT.
+        self.assertIn("Bare", unpinned)
+
+    def test_cpm_drift_and_orphan(self):
+        res, _ = _run(dotnet, FIXTURES / "dotnet-cpm")
+        codes = {(f.code, f.package) for f in res.findings}
+        # Directory.Packages.props is a CPM declaration file — no MISSING_LOCKFILE.
+        missing_lock_files = {f.file for f in res.findings if f.code == "MISSING_LOCKFILE"}
+        self.assertNotIn("Directory.Packages.props", missing_lock_files)
+        # Drifty 1.0.0 declared, 0.9.5 locked.
+        self.assertIn(("CPM_DECLARED_VS_LOCKED_DRIFT", "Drifty"), codes)
+        # OrphanRef has no <PackageVersion> entry.
+        self.assertIn(("CPM_REFERENCE_WITHOUT_VERSION", "OrphanRef"), codes)
+        # Newtonsoft.Json + Serilog match → no drift, no missing.
+        self.assertNotIn(("CPM_DECLARED_VS_LOCKED_DRIFT", "Newtonsoft.Json"), codes)
+        self.assertNotIn(("CPM_DECLARED_VS_LOCKED_DRIFT", "Serilog"), codes)
+        # PackageReference without Version under CPM is *not* an UNPINNED_DIRECT
+        # when a matching <PackageVersion> exists.
+        unpinned = {f.package for f in res.findings if f.code == "UNPINNED_DIRECT"}
+        self.assertNotIn("Newtonsoft.Json", unpinned)
+        self.assertNotIn("Serilog", unpinned)
+
+
+class TestDockerfileMultistage(unittest.TestCase):
+    def test_from_stage_alias_not_flagged(self):
+        res, _ = _run(dockerfile, FIXTURES / "dockerfile-multistage")
+        no_tag = [f for f in res.findings if f.code == "DOCKER_NO_TAG"]
+        # `FROM base AS deps`, `FROM base AS build`, and `FROM Base as Runtime`
+        # all reference the prior stage — none should flag.
+        offenders = [f.spec for f in no_tag]
+        self.assertNotIn("base", offenders)
+        self.assertNotIn("Base", offenders)
+        # `FROM unknown-image` must still flag.
+        self.assertIn("unknown-image", offenders)
+        self.assertEqual(len(no_tag), 1, [(f.line, f.spec) for f in no_tag])
+
+
+class TestNpmWorkspace(unittest.TestCase):
+    def test_pnpm_workspace_member_suppressed(self):
+        res, _ = _run(npm, FIXTURES / "pnpm-workspace")
+        missing = {f.file for f in res.findings if f.code == "MISSING_LOCKFILE"}
+        self.assertNotIn("apps/cli/package.json", missing)
+        self.assertNotIn("packages/util/package.json", missing)
+        # `outside/` is not matched by `apps/*` or `packages/*` globs.
+        self.assertIn("outside/package.json", missing)
+
+    def test_npm_workspaces_array_with_recursive_glob(self):
+        # Root has `workspaces: ["apps/*", "libs/**"]` + a co-located
+        # package-lock.json. Members in apps/ and arbitrarily-deep libs/
+        # subtrees must be suppressed.
+        res, _ = _run(npm, FIXTURES / "npm-workspace-array")
+        missing = {f.file for f in res.findings if f.code == "MISSING_LOCKFILE"}
+        self.assertNotIn("apps/web/package.json", missing)
+        # `libs/**` is recursive — must match `libs/util/nested`.
+        self.assertNotIn("libs/util/nested/package.json", missing)
+
+    def test_yarn_workspaces_dict_form(self):
+        # Yarn berry uses `workspaces: { packages: [...] }` — make sure we
+        # honor the dict form, not just the array form.
+        res, _ = _run(npm, FIXTURES / "yarn-workspace-dict")
+        missing = {f.file for f in res.findings if f.code == "MISSING_LOCKFILE"}
+        self.assertNotIn("members/a/package.json", missing)
+
+
+class TestDotnetCpmNested(unittest.TestCase):
+    def test_nested_props_overrides_root(self):
+        # Root Directory.Packages.props declares Newtonsoft.Json 13.0.4 and
+        # OnlyInRoot 1.0.0. legacy/Directory.Packages.props overrides
+        # Newtonsoft.Json to 12.0.0 and does NOT inherit OnlyInRoot
+        # (MSBuild's closest-ancestor rule, no merging).
+        res, _ = _run(dotnet, FIXTURES / "dotnet-cpm-nested")
+        drifts = [
+            f for f in res.findings
+            if f.code == "CPM_DECLARED_VS_LOCKED_DRIFT"
+        ]
+        # apps/Api locks Newtonsoft.Json at 13.0.4 → matches root → NO drift.
+        self.assertNotIn(("apps/Api/Api.csproj", "Newtonsoft.Json"),
+                         {(f.file, f.package) for f in drifts})
+        # legacy locks Newtonsoft.Json at 13.0.4 but its props pin is 12.0.0 → DRIFT.
+        # Finding should point at legacy/Directory.Packages.props (closest props),
+        # NOT at the root props.
+        legacy_drift = [
+            f for f in drifts
+            if f.package == "Newtonsoft.Json"
+            and f.file == "legacy/Directory.Packages.props"
+        ]
+        self.assertEqual(len(legacy_drift), 1, drifts)
+        self.assertEqual(legacy_drift[0].spec, "12.0.0")
+        self.assertEqual(legacy_drift[0].resolved_version, "13.0.4")
+
+        # Orphan refs: legacy/Old.csproj references OnlyInRoot, but legacy's
+        # props doesn't declare it (and root is NOT inherited).
+        orphans = {
+            (f.file, f.package) for f in res.findings
+            if f.code == "CPM_REFERENCE_WITHOUT_VERSION"
+        }
+        self.assertIn(("legacy/Old.csproj", "OnlyInRoot"), orphans)
+        # apps/Api references OnlyInRoot — root *does* declare it → not an orphan.
+        self.assertNotIn(("apps/Api/Api.csproj", "OnlyInRoot"), orphans)
+
+    def test_transitive_lockfile_entries_are_not_drift(self):
+        # OnlyTransitive is declared in props at 5.0.0 but appears only as
+        # a Transitive entry (resolved 4.0.0) in the lockfile. Transitive
+        # resolutions can legitimately differ — must not flag as drift.
+        res, _ = _run(dotnet, FIXTURES / "dotnet-cpm")
+        drifts = {f.package for f in res.findings if f.code == "CPM_DECLARED_VS_LOCKED_DRIFT"}
+        self.assertNotIn("OnlyTransitive", drifts)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Pinned to the older major; this subtree intentionally diverges. -->
+    <PackageVersion Include="Newtonsoft.Json" Version="12.0.0" />
+  </ItemGroup>
+</Project>

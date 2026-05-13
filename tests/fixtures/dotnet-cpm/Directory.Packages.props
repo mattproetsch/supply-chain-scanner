@@ -1,0 +1,17 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageVersion Include="Serilog" Version="3.1.1" />
+    <PackageVersion Include="Drifty" Version="1.0.0" />
+    <!--
+      OnlyTransitive is centrally pinned but no csproj references it
+      directly. The lockfile resolves it to 4.0.0 (a transitive choice
+      that bypasses CPM). We must NOT flag this as drift — only Direct
+      lockfile entries are subject to CPM drift detection.
+    -->
+    <PackageVersion Include="OnlyTransitive" Version="5.0.0" />
+  </ItemGroup>
+</Project>

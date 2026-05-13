@@ -70,13 +70,14 @@ def _scan(repo: Repo, path: Path, res: ParseResult) -> None:
     if buf.strip():
         lines.append((start, buf.strip()))
 
+    seen_stages: set[str] = set()
     for lineno, line in lines:
         if line.startswith("#"):
             continue
         upper = line.split(None, 1)[0].upper() if line.split() else ""
         rest = line[len(upper):].strip() if upper else ""
         if upper == "FROM":
-            _check_from(rel, lineno, rest, res)
+            _check_from(rel, lineno, rest, seen_stages, res)
         elif upper == "RUN":
             _check_run(rel, lineno, rest, res)
         elif upper == "ADD":
@@ -92,12 +93,21 @@ def _scan(repo: Repo, path: Path, res: ParseResult) -> None:
                     break
 
 
-def _check_from(rel: str, lineno: int, rest: str, res: ParseResult) -> None:
+def _check_from(rel: str, lineno: int, rest: str, seen_stages: set[str], res: ParseResult) -> None:
     # FROM image[:tag][@sha256:digest] [AS name] [--platform=...]
     parts = [p for p in rest.split() if not p.startswith("--")]
     if not parts:
         return
     image = parts[0]
+    # Capture `AS <name>` alias (case-insensitive AS keyword; stage names are
+    # case-insensitive in Docker). Recorded *before* we decide whether to
+    # short-circuit, so a stage can reference itself only via prior lines.
+    for i in range(1, len(parts) - 1):
+        if parts[i].upper() == "AS":
+            seen_stages.add(parts[i + 1].lower())
+            break
+    if image.lower() in seen_stages:
+        return  # references an earlier build stage, not a registry image
     if image.lower() == "scratch":
         return
     if "@sha256:" in image:

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" />
+    <!-- OnlyInRoot is declared in ../Directory.Packages.props but NOT in
+         legacy/Directory.Packages.props. MSBuild only honors the closest
+         ancestor (no merging), so this should flag as an orphan. -->
+    <PackageReference Include="OnlyInRoot" />
+  </ItemGroup>
+</Project>

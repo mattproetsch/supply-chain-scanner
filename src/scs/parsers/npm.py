@@ -28,7 +28,10 @@ FLOATING_PREFIXES = ("^", "~", ">", "<", "=", "*")
 
 def matches(rel_path: str) -> bool:
     name = Path(rel_path).name
-    return name in {"package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "npm-shrinkwrap.json"}
+    return name in {
+        "package.json", "package-lock.json", "yarn.lock",
+        "pnpm-lock.yaml", "pnpm-workspace.yaml", "npm-shrinkwrap.json",
+    }
 
 
 def parse(repo: Repo, files: Iterable[Path]) -> ParseResult:
@@ -40,11 +43,13 @@ def parse(repo: Repo, files: Iterable[Path]) -> ParseResult:
         d = f.parent
         by_dir.setdefault(d, {})[f.name] = f
 
+    workspace_member_dirs = _find_workspace_member_dirs(by_dir)
+
     for d, entries in by_dir.items():
-        rel_dir = repo.rel(d)
         if "package.json" in entries:
             res.files_scanned += 1
-            _scan_package_json(repo, entries["package.json"], entries, res)
+            is_member = d.resolve() in workspace_member_dirs
+            _scan_package_json(repo, entries["package.json"], entries, is_member, res)
         if "package-lock.json" in entries:
             res.files_scanned += 1
             _scan_package_lock(repo, entries["package-lock.json"], res)
@@ -61,10 +66,127 @@ def parse(repo: Repo, files: Iterable[Path]) -> ParseResult:
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Workspace member resolution (pnpm + npm + yarn)
+# ──────────────────────────────────────────────────────────────────────────
+
+def _find_workspace_member_dirs(by_dir: dict[Path, dict[str, Path]]) -> set[Path]:
+    """Return absolute directories that are members of a JS workspace whose
+    root has a co-located lockfile.
+
+    A workspace root is either:
+      - a dir with `pnpm-workspace.yaml` AND `pnpm-lock.yaml`, or
+      - a dir with `package.json` (declaring `workspaces`) AND any of
+        `package-lock.json`/`yarn.lock`/`pnpm-lock.yaml`/`npm-shrinkwrap.json`.
+
+    Member candidates are every package.json directory in `by_dir` that sits
+    under a root and matches one of the root's `packages:`/`workspaces:` globs.
+    """
+    members: set[Path] = set()
+    pkg_dirs = [d.resolve() for d, ents in by_dir.items() if "package.json" in ents]
+
+    roots: list[tuple[Path, list[str]]] = []  # (root_dir_resolved, glob patterns)
+
+    for d, ents in by_dir.items():
+        d_resolved = d.resolve()
+        if "pnpm-workspace.yaml" in ents and "pnpm-lock.yaml" in ents:
+            patterns = _read_pnpm_workspace_globs(ents["pnpm-workspace.yaml"])
+            if patterns:
+                roots.append((d_resolved, patterns))
+        if "package.json" in ents and any(n in ents for n in LOCKFILE_NAMES):
+            patterns = _read_npm_workspaces_globs(ents["package.json"])
+            if patterns:
+                roots.append((d_resolved, patterns))
+
+    if not roots:
+        return members
+
+    for root_dir, patterns in roots:
+        positives = [p for p in patterns if not p.startswith("!")]
+        negatives = [p[1:] for p in patterns if p.startswith("!")]
+        for pkg_dir in pkg_dirs:
+            if pkg_dir == root_dir:
+                continue
+            try:
+                rel = pkg_dir.relative_to(root_dir)
+            except ValueError:
+                continue
+            rel_s = rel.as_posix()
+            if any(_glob_match(pat, rel_s) for pat in positives) and not any(
+                _glob_match(pat, rel_s) for pat in negatives
+            ):
+                members.add(pkg_dir)
+    return members
+
+
+def _read_pnpm_workspace_globs(path: Path) -> list[str]:
+    try:
+        data = yaml_lite.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except Exception:
+        return []
+    if not isinstance(data, dict):
+        return []
+    pkgs = data.get("packages")
+    if not isinstance(pkgs, list):
+        return []
+    return [str(p) for p in pkgs if isinstance(p, str)]
+
+
+def _read_npm_workspaces_globs(path: Path) -> list[str]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except Exception:
+        return []
+    ws = data.get("workspaces")
+    if isinstance(ws, list):
+        return [str(p) for p in ws if isinstance(p, str)]
+    if isinstance(ws, dict):
+        pkgs = ws.get("packages")
+        if isinstance(pkgs, list):
+            return [str(p) for p in pkgs if isinstance(p, str)]
+    return []
+
+
+_GLOB_CACHE: dict[str, "re.Pattern[str]"] = {}
+
+
+def _glob_match(pattern: str, path: str) -> bool:
+    """Match `path` against an npm/pnpm/yarn workspace glob.
+
+    `*` matches one path segment (no `/`); `**` matches across segments.
+    Anchored to the start AND end of `path`. Trailing `/` is tolerated.
+    """
+    pat = pattern.rstrip("/")
+    rx = _GLOB_CACHE.get(pat)
+    if rx is None:
+        out = []
+        i = 0
+        while i < len(pat):
+            if pat[i:i + 2] == "**":
+                out.append(".*")
+                i += 2
+            elif pat[i] == "*":
+                out.append("[^/]*")
+                i += 1
+            elif pat[i] == "?":
+                out.append("[^/]")
+                i += 1
+            elif pat[i] in r".\+()[]{}|^$":
+                out.append(re.escape(pat[i]))
+                i += 1
+            else:
+                out.append(pat[i])
+                i += 1
+        rx = re.compile("^" + "".join(out) + "$")
+        _GLOB_CACHE[pat] = rx
+    return rx.match(path.rstrip("/")) is not None
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # package.json
 # ──────────────────────────────────────────────────────────────────────────
 
-def _scan_package_json(repo: Repo, path: Path, dir_entries: dict[str, Path], res: ParseResult) -> None:
+def _scan_package_json(repo: Repo, path: Path, dir_entries: dict[str, Path],
+                        is_workspace_member: bool, res: ParseResult) -> None:
     rel = repo.rel(path)
     try:
         data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
@@ -80,8 +202,9 @@ def _scan_package_json(repo: Repo, path: Path, dir_entries: dict[str, Path], res
     is_workspace_root = bool(data.get("workspaces"))
     has_private = bool(data.get("private"))
 
-    # Missing lockfile is HIGH unless this is purely a workspace root or private library
-    if not has_lockfile and not is_workspace_root:
+    # Missing lockfile is HIGH unless this is a workspace root, or a workspace
+    # member whose root carries the lockfile (npm/yarn/pnpm monorepos).
+    if not has_lockfile and not is_workspace_root and not is_workspace_member:
         res.findings.append(Finding(
             severity=Severity.HIGH, code="MISSING_LOCKFILE",
             title="No lockfile alongside package.json — installs are non-reproducible",
