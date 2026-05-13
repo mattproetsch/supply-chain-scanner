@@ -21,7 +21,13 @@ from scs import yaml_lite
 
 ECOSYSTEM = "npm"
 LOCKFILE_NAMES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "npm-shrinkwrap.json"}
-PEER_KINDS = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
+# Dependency kinds whose entries describe ACTUAL installs. We deliberately
+# exclude `peerDependencies`: those are consumer compatibility contracts
+# ("I work with eslint 9+"), not installation pins. Tightening peer ranges
+# is an anti-pattern that propagates pin-rigidity to consumers.
+DEP_KINDS = ("dependencies", "devDependencies", "optionalDependencies")
+# Peer specs that are uselessly broad — surfaced at INFO as PEER_OVERBROAD.
+OVERBROAD_PEER_SPECS = {"*", "latest", "next", "x", ""}
 EXACT_VER_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][\w.\-+]*)?$")
 FLOATING_PREFIXES = ("^", "~", ">", "<", "=", "*")
 
@@ -146,6 +152,38 @@ def _read_npm_workspaces_globs(path: Path) -> list[str]:
     return []
 
 
+def _split_flow(body: str) -> list[str]:
+    """Split a YAML flow-mapping body on top-level commas.
+
+    Honors single- and double-quoted runs so a quoted value containing a
+    comma (rare but legal in pnpm v9 — e.g., a tarball URL with query
+    params, or a quoted version range) is kept intact. Does NOT recurse
+    into nested `{}`/`[]` since pnpm v9's `resolution:` flow mappings
+    contain only atomic sub-values.
+    """
+    out: list[str] = []
+    cur: list[str] = []
+    in_q: str | None = None
+    for c in body:
+        if in_q:
+            cur.append(c)
+            if c == in_q:
+                in_q = None
+            continue
+        if c in ("'", '"'):
+            in_q = c
+            cur.append(c)
+            continue
+        if c == ",":
+            out.append("".join(cur))
+            cur = []
+            continue
+        cur.append(c)
+    if cur:
+        out.append("".join(cur))
+    return out
+
+
 _GLOB_CACHE: dict[str, "re.Pattern[str]"] = {}
 
 
@@ -212,7 +250,7 @@ def _scan_package_json(repo: Repo, path: Path, dir_entries: dict[str, Path],
             detail="Add `package-lock.json`, `yarn.lock`, or `pnpm-lock.yaml` and commit it.",
         ))
 
-    for kind in PEER_KINDS:
+    for kind in DEP_KINDS:
         deps = data.get(kind) or {}
         if not isinstance(deps, dict):
             continue
@@ -237,6 +275,29 @@ def _scan_package_json(repo: Repo, path: Path, dir_entries: dict[str, Path],
                 file=rel, ecosystem=ECOSYSTEM, package=name, spec=spec,
                 detail=f"`{kind}` declares `{name}@{spec}`",
             ))
+
+    # peerDependencies: ranges like ">=9" or "^4" are by design (the whole
+    # point of peer deps is compatibility breadth). Don't flag those. But
+    # truly unbounded peer specs (`*`, `latest`, etc.) ARE worth surfacing
+    # at INFO — they declare compatibility with literally any version.
+    peer_deps = data.get("peerDependencies") or {}
+    if isinstance(peer_deps, dict):
+        for name, spec in peer_deps.items():
+            if not isinstance(spec, str):
+                continue
+            if spec.strip() in OVERBROAD_PEER_SPECS:
+                res.findings.append(Finding(
+                    severity=Severity.INFO, code="PEER_OVERBROAD",
+                    title=f"Overly-broad peer-dep spec: `{name}: {spec or '(empty)'}`",
+                    file=rel, ecosystem=ECOSYSTEM, package=name, spec=spec,
+                    detail=(
+                        "`peerDependencies` declare compatibility ranges, not "
+                        "installation pins, so `>=`/`^`/`~` ranges are normal. "
+                        "But `*`/`latest`/`next`/empty say \"any version, "
+                        "anywhere\" — tighten to a real range (e.g., `^18`) "
+                        "so consumers know what you actually support."
+                    ),
+                ))
 
 
 def _classify_npm_spec(spec: str) -> tuple[Severity, str, str] | None:
@@ -340,6 +401,16 @@ def _record_lock_entry(repo: Repo, rel: str, name: str, ver: str, integrity: str
             severity=Severity.MEDIUM, code="LOCK_NO_INTEGRITY",
             title=f"Lock entry without integrity hash: {name}@{ver}",
             file=rel, ecosystem=ECOSYSTEM, package=name, resolved_version=ver, chain=chain,
+            detail=(
+                "Lockfile entry has no integrity hash, so the next install "
+                "can't verify it matches what was originally fetched. Common "
+                "legitimate causes: git/local/url dependency. To fix: re-run "
+                "your package manager's install/lock command — but FIRST "
+                "verify the registry is serving the same bytes as the "
+                "original fetch (audit log, signed release, peer dev's "
+                "lockfile). A naive regenerate against a tampered registry "
+                "will re-pin the tampered hash and quietly bless it."
+            ),
         ))
     if resolved and not resolved.startswith("https://registry.npmjs.org/") and not resolved.startswith("https://registry.yarnpkg.com/"):
         # Could be a private registry (legitimate) — flag as MEDIUM/INFO
@@ -489,8 +560,23 @@ def _scan_pnpm_lock(repo: Repo, path: Path, res: ParseResult) -> None:
             continue
         # Inner kv pairs at 4-space indent
         if line.startswith("    ") and ":" in line:
-            k, v = line.lstrip().split(":", 1)
-            cur_block[k.strip()] = v.strip()
+            k, _, v = line.lstrip().partition(":")
+            k, v = k.strip(), v.strip()
+            if v.startswith("{") and v.endswith("}"):
+                # Pnpm v9 inline flow mapping (e.g.
+                # `resolution: {integrity: sha512-..., tarball: ...}`).
+                # Lift sub-keys directly into cur_block so callers can read
+                # `integrity`, `tarball`, `repo`, etc. by name.
+                for part in _split_flow(v[1:-1]):
+                    sk, _, sv = part.partition(":")
+                    sk = sk.strip()
+                    if sk:
+                        cur_block[sk] = sv.strip().strip("'\"")
+                # Also keep the raw value under its parent key so anything
+                # that wants the unparsed form (debugging, fallback) can see it.
+                cur_block[k] = v
+            else:
+                cur_block[k] = v
     if cur_key:
         pkgs.append((cur_key, cur_block))
 
@@ -523,5 +609,12 @@ def _scan_pnpm_lock(repo: Repo, path: Path, res: ParseResult) -> None:
         if not name or not ver:
             continue
         integrity = info.get("integrity", "").strip().strip("'\"")
-        resolution = info.get("resolution", "").strip()
+        # v9 carries the URL in `tarball` (registry) or `repo` (git) inside
+        # the inline `resolution:` flow mapping. Pre-v9 lockfiles put the
+        # URL directly in `resolution`. Try the structured fields first.
+        resolution = (
+            info.get("tarball")
+            or info.get("repo")
+            or info.get("resolution", "")
+        ).strip()
         _record_lock_entry(repo, rel, name, ver, integrity, resolution, False, res)

@@ -414,6 +414,66 @@ class TestNpmRich(unittest.TestCase):
         peerdep = next(r for r in res.resolved if r.name == "peerdep")
         self.assertEqual(peerdep.version, "1.0.0")
 
+    def test_pnpm_v9_inline_resolution_flow_mapping(self):
+        # Pnpm v9 stores resolution as an INLINE flow mapping:
+        #   resolution: {integrity: sha512-..., tarball: ...}
+        # The parser must lift sub-keys into the entry so integrity is
+        # detected — otherwise every package looks integrity-less.
+        res, _ = _run(npm, FIXTURES / "pnpm-v9")
+        names = {r.name for r in res.resolved}
+        # Registry packages with integrity → no LOCK_NO_INTEGRITY.
+        no_int = {f.package for f in res.findings if f.code == "LOCK_NO_INTEGRITY"}
+        for clean in ("3d-force-graph", "@adobe/css-tools", "lodash",
+                      "peerdep-disambig", "@private/with-tarball"):
+            self.assertIn(clean, names, f"{clean} should be resolved")
+            self.assertNotIn(clean, no_int, f"{clean} should NOT lack integrity")
+        # Git source has no integrity → LOCK_NO_INTEGRITY DOES fire (legitimate).
+        self.assertIn("git-source", names)
+        self.assertIn("git-source", no_int)
+        # The git source URL came from the `repo` sub-key inside the flow
+        # mapping → LOCK_NONCANONICAL_SOURCE fires (it's not registry.npmjs.org
+        # and it's a `git+` scheme).
+        non_canonical = {f.package for f in res.findings if f.code == "LOCK_NONCANONICAL_SOURCE"}
+        self.assertIn("git-source", non_canonical)
+        # Tarball from a non-registry URL → LOCK_NONCANONICAL_SOURCE also flags
+        # via the `tarball` sub-key; but `internal.example.com` is `https://`,
+        # which the inner check requires git+/git://`/`http://` (not https) to
+        # flag. So @private/with-tarball is NOT non-canonical-source-flagged.
+        self.assertNotIn("@private/with-tarball", non_canonical)
+
+    def test_peer_deps_not_flagged_as_unpinned_or_resolved(self):
+        # peerDependencies are consumer compatibility contracts, not pins.
+        # They must NOT appear as UNPINNED_DIRECT and must NOT be added to
+        # ResolvedDep (the consumer controls the actually-installed version).
+        res, _ = _run(npm, FIXTURES / "npm-rich")
+        unpinned_pkgs = {
+            f.package for f in res.findings if f.code == "UNPINNED_DIRECT"
+        }
+        # Peer-only packages must not be in the UNPINNED set.
+        for peer_only in ("eslint", "vue"):
+            self.assertNotIn(peer_only, unpinned_pkgs,
+                             f"{peer_only} is peer-only; should not be UNPINNED_DIRECT")
+        # Peer-only packages must not be in res.resolved either.
+        resolved_names = {r.name for r in res.resolved}
+        for peer_only in ("eslint", "vue", "react", "svelte"):
+            self.assertNotIn(peer_only, resolved_names,
+                             f"{peer_only} is peer-only; should not be in resolved")
+
+    def test_peer_overbroad_flagged_only_for_useless_specs(self):
+        # `*` and `latest` peer specs → INFO PEER_OVERBROAD.
+        # `>=9` and `^3.0` peer specs → no finding.
+        res, _ = _run(npm, FIXTURES / "npm-rich")
+        overbroad = {
+            f.package: f for f in res.findings if f.code == "PEER_OVERBROAD"
+        }
+        self.assertIn("react", overbroad)        # peerDep: "*"
+        self.assertIn("svelte", overbroad)        # peerDep: "latest"
+        self.assertNotIn("eslint", overbroad)     # peerDep: ">=9" — legitimate range
+        self.assertNotIn("vue", overbroad)        # peerDep: "^3.0" — legitimate range
+        # Severity is INFO.
+        self.assertEqual(overbroad["react"].severity, Severity.INFO)
+        self.assertEqual(overbroad["svelte"].severity, Severity.INFO)
+
 
 class TestDotnetCpmNested(unittest.TestCase):
     def test_nested_props_overrides_root(self):

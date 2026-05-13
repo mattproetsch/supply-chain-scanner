@@ -1,0 +1,32 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+
+importers:
+  .:
+    dependencies:
+      lodash:
+        specifier: 4.17.21
+        version: 4.17.21
+
+packages:
+
+  3d-force-graph@1.80.0:
+    resolution: {integrity: sha512-tzI353gW1nXPpnC7VTa3JjMg+3cp77qOLUFO0vucPTfF+q5R6sQsNsIqVTbRIb7RSypn14nBa4yfkOe9ThxASw==}
+    engines: {node: '>=12'}
+
+  '@adobe/css-tools@4.4.4':
+    resolution: {integrity: sha512-Elp+iwUx5rN5+Y8xLt5/GRoG20WGoDCQ/1Fb+1LiGtvwbDavuSk0jhD/eZdckHAuzcDzccnkv+rEjyWfRx18gg==}
+
+  lodash@4.17.21:
+    resolution: {integrity: sha512-v2kDEe57lecTulaDIuNTPy3Ry4gLGJ6Z1O3vE1krgXZNrsQ+LFTGHVxVjcXPs17LhbZVGedAJv8XZ1tvj5FvSg==}
+
+  peerdep-disambig@1.0.0(react@18.2.0):
+    resolution: {integrity: sha512-MMM=}
+
+  '@private/with-tarball@2.0.0':
+    resolution: {integrity: sha512-NNN=, tarball: 'https://internal.example.com/pkg-2.0.0.tgz'}
+
+  git-source@3.0.0:
+    resolution: {commit: abcdef0123456789, repo: 'git+ssh://git@github.com/foo/bar.git', type: git}

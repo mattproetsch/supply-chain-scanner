@@ -31,5 +31,11 @@
   "devDependencies": {
     "dev-floating": "^3.0.0"
   },
-  "optionalDependencies": "not-an-object"
+  "optionalDependencies": "not-an-object",
+  "peerDependencies": {
+    "eslint": ">=9",
+    "vue": "^3.0",
+    "react": "*",
+    "svelte": "latest"
+  }
 }
