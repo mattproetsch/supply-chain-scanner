@@ -1,0 +1,5 @@
+from setuptools import setup
+setup(
+    name="no-install-requires-here",
+    version="0.0.0",
+)

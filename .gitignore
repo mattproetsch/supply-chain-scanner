@@ -26,3 +26,4 @@ src/scs/_vendor/packaging/
 
 # Default --out from scs scan when run in repo root
 scs-report.html
+.venv-test/

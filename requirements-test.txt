@@ -1,0 +1,7 @@
+# Test-only deps. Pinned + sha-checked.
+# Usage: .venv-test/bin/pip install --require-hashes -r requirements-test.txt
+#
+# coverage 7.14.0 — sdist hash. The wheel is platform-specific; installing
+# from sdist lets us pin once and build locally on any platform.
+coverage==7.14.0 \
+    --hash=sha256:057a6af2f160a85384cde4ab36f0d2777bae1057bae255f95413cdd382aa5c74

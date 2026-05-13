@@ -1,0 +1,17 @@
+[[package]]
+name = "uv-with-sdist"
+version = "1.0.0"
+sdist = { hash = "sha256:dddd" }
+
+[[package]]
+name = "uv-with-wheel"
+version = "2.0.0"
+wheels = [{ hash = "sha256:eeee" }]
+
+[[package]]
+name = "uv-no-hash"
+version = "3.0.0"
+
+[[package]]
+name = "uv-missing-version"
+sdist = { hash = "sha256:ffff" }

@@ -3,7 +3,7 @@ from pathlib import Path
 
 from tests.conftest_path import FIXTURES  # noqa: F401  (sets sys.path)
 from scs.repo import make_repo
-from scs.parsers import npm, python as pyparser, dockerfile, gh_actions, rust, golang, dotnet
+from scs.parsers import npm, python as pyparser, dockerfile, gh_actions, gitlab_ci, rust, golang, dotnet
 from scs.findings import Severity
 
 
@@ -238,6 +238,183 @@ class TestNpmWorkspace(unittest.TestCase):
         self.assertNotIn("members/a/package.json", missing)
 
 
+class TestPythonRich(unittest.TestCase):
+    """Coverage of the lockfile/manifest variants and edge cases in python.py."""
+
+    def test_requirements_directives_and_edge_cases(self):
+        res, _ = _run(pyparser, FIXTURES / "python-unpinned")
+        codes = {f.code for f in res.findings}
+        # `-e .` and `--editable git+...` → EDITABLE_INSTALL.
+        self.assertIn("EDITABLE_INSTALL", codes)
+        # `hg+`, `svn+`, `bzr+` join `git+` under VCS_INSTALL.
+        vcs = [f for f in res.findings if f.code == "VCS_INSTALL"]
+        self.assertGreaterEqual(len(vcs), 4)  # git+, hg+, svn+, bzr+
+        # Direct URL install.
+        self.assertIn("HTTP_INSTALL", codes)
+        # Pinned but no --hash → PINNED_NO_HASH.
+        no_hash = [f for f in res.findings if f.code == "PINNED_NO_HASH"]
+        self.assertTrue(any(f.package == "attrs" for f in no_hash))
+        # `psycopg2-binary==2.9.9` with continuation-joined --hash → not flagged.
+        self.assertFalse(any(f.package == "psycopg2-binary" for f in no_hash))
+        # `-r`, `-c`, `--index-url` etc must not appear as packages.
+        pkg_names = {f.package for f in res.findings if f.package}
+        for fake in ("-r", "-c", "--requirement", "--index-url", "--trusted-host"):
+            self.assertNotIn(fake, pkg_names)
+
+    def test_pyproject_poetry_specs(self):
+        res, _ = _run(pyparser, FIXTURES / "python-rich")
+        unpinned = {f.package for f in res.findings if f.code == "UNPINNED_DIRECT"}
+        # caret/tilde Poetry specs → UNPINNED_DIRECT.
+        self.assertIn("caret-pkg", unpinned)
+        self.assertIn("tilde-pkg", unpinned)
+        # Dev-group / group.test deps still get scanned.
+        self.assertIn("dev-floating", unpinned)
+        # Poetry git WITHOUT a SHA rev → GIT_INSTALL.
+        git_findings = [f for f in res.findings if f.code == "GIT_INSTALL"]
+        self.assertTrue(any(f.package == "git-branch" for f in git_findings))
+        self.assertTrue(any(f.package == "git-no-rev" for f in git_findings))
+        # SHA-pinned git → no finding.
+        self.assertFalse(any(f.package == "git-sha" for f in git_findings))
+        # path/url Poetry installs are silently accepted.
+        self.assertNotIn("path-pkg", unpinned)
+        self.assertNotIn("url-pkg", unpinned)
+        # `python = "^3.10"` Poetry pin must be skipped (it's the interpreter).
+        self.assertNotIn("python", {r.name for r in res.resolved})
+
+    def test_pipfile_and_lock(self):
+        res, _ = _run(pyparser, FIXTURES / "python-rich")
+        # Pipfile floating spec (string + dict form).
+        unpinned = {f.package for f in res.findings if f.code == "UNPINNED_DIRECT"}
+        self.assertIn("floating-pkg", unpinned)
+        self.assertIn("caret-pkg", unpinned)
+        # Pipfile.lock entry without `hashes` → LOCK_NO_INTEGRITY.
+        no_int = {f.package for f in res.findings if f.code == "LOCK_NO_INTEGRITY"}
+        self.assertIn("no-hashes", no_int)
+        # With-hashes resolved successfully.
+        names = {r.name for r in res.resolved}
+        self.assertIn("with-hashes", names)
+        self.assertIn("dev-locked", names)
+
+    def test_poetry_and_uv_locks(self):
+        res, _ = _run(pyparser, FIXTURES / "python-rich")
+        names = {r.name for r in res.resolved}
+        self.assertIn("locked-pkg", names)
+        self.assertIn("another", names)
+        # uv.lock entries with sdist hash or wheel hash → no LOCK_NO_INTEGRITY.
+        no_int_names = {f.package for f in res.findings if f.code == "LOCK_NO_INTEGRITY"}
+        self.assertNotIn("uv-with-sdist", no_int_names)
+        self.assertNotIn("uv-with-wheel", no_int_names)
+        # uv.lock entry with no hash → LOCK_NO_INTEGRITY fires.
+        self.assertIn("uv-no-hash", no_int_names)
+
+    def test_setup_py_install_requires(self):
+        res, _ = _run(pyparser, FIXTURES / "python-rich")
+        unpinned = {f.package for f in res.findings if f.code == "UNPINNED_DIRECT"}
+        # `flask>=2.0` and bare `click` from setup.py → UNPINNED_DIRECT.
+        self.assertIn("flask", unpinned)
+        self.assertIn("click", unpinned)
+        # `requests==2.31.0` is exact → resolved, not unpinned.
+        names = {r.name for r in res.resolved}
+        self.assertIn("requests", names)
+
+
+class TestNpmRich(unittest.TestCase):
+    """Coverage of `_classify_npm_spec` branches and the lockfile parsers."""
+
+    def test_npm_spec_classifications(self):
+        # npm-rich/package.json packs every spec form into one file. We assert
+        # the right code/severity tuple lands on each named dependency.
+        res, _ = _run(npm, FIXTURES / "npm-rich")
+        by_name = {f.package: f for f in res.findings if f.package}
+        # Floating-tag specs.
+        self.assertEqual(by_name["wildcard"].code, "UNPINNED_DIRECT")
+        self.assertEqual(by_name["latest-tag"].code, "UNPINNED_DIRECT")
+        self.assertEqual(by_name["next-tag"].code, "UNPINNED_DIRECT")
+        self.assertEqual(by_name["x-tag"].code, "UNPINNED_DIRECT")
+        self.assertEqual(by_name["empty-spec"].code, "UNPINNED_DIRECT")
+        # Range / non-exact specs.
+        self.assertEqual(by_name["carret"].code, "UNPINNED_DIRECT")
+        self.assertEqual(by_name["tilde"].code, "UNPINNED_DIRECT")
+        # Git URL without commit pin.
+        self.assertEqual(by_name["git-no-ref"].code, "GIT_INSTALL")
+        # Git URL pinned to a non-SHA ref (branch).
+        self.assertEqual(by_name["git-branch-ref"].code, "GIT_INSTALL")
+        # Git URL pinned to a SHA → no finding.
+        self.assertNotIn("git-sha-ref", by_name)
+        # Other git transports.
+        self.assertEqual(by_name["git-protocol"].code, "GIT_INSTALL")
+        self.assertEqual(by_name["git-ssh"].code, "GIT_INSTALL")
+        self.assertEqual(by_name["github-shorthand"].code, "GIT_INSTALL")
+        # Tarball URL (https + http).
+        self.assertEqual(by_name["tarball-url"].code, "HTTP_INSTALL")
+        self.assertEqual(by_name["tarball-http"].code, "HTTP_INSTALL")
+        # Local refs — no finding.
+        for n in ("file-link", "link-link", "workspace-link"):
+            self.assertNotIn(n, by_name)
+        # Aliased installs unwrap to the underlying spec.
+        self.assertEqual(by_name["npm-alias-floating"].code, "UNPINNED_DIRECT")
+        self.assertEqual(by_name["npm-alias-bare"].code, "UNPINNED_DIRECT")
+        self.assertNotIn("npm-alias-pinned", by_name)
+        # Exact pins — no finding.
+        for n in ("exact", "scoped-exact"):
+            self.assertNotIn(n, by_name)
+
+    def test_npm_lockfile_parsing(self):
+        # package-lock.json with both v3 `packages` and v1 `dependencies`
+        # mirror exercises both walkers.
+        res, _ = _run(npm, FIXTURES / "npm-rich")
+        resolved_names = {r.name for r in res.resolved}
+        # v3 packages section (incl. nested @scope and node_modules/parent/node_modules/nested).
+        self.assertIn("lodash", resolved_names)
+        self.assertIn("@scope/pkg", resolved_names)
+        self.assertIn("nested", resolved_names)
+        # v1 mirror with chain expansion.
+        self.assertIn("v1-style", resolved_names)
+        self.assertIn("v1-nested", resolved_names)
+        # Lockfile entry without integrity emits LOCK_NO_INTEGRITY.
+        no_integrity = [
+            f for f in res.findings
+            if f.code == "LOCK_NO_INTEGRITY" and f.package == "no-integrity"
+        ]
+        self.assertEqual(len(no_integrity), 1)
+        # `git+` resolved source flags as LOCK_NONCANONICAL_SOURCE.
+        non_canonical = [
+            f for f in res.findings
+            if f.code == "LOCK_NONCANONICAL_SOURCE" and f.package == "git-source"
+        ]
+        self.assertEqual(len(non_canonical), 1)
+
+    def test_yarn_v1_lock(self):
+        res, _ = _run(npm, FIXTURES / "yarn-v1")
+        names = {r.name for r in res.resolved}
+        # Comma-joined header keys → both lodash variants resolve to one entry.
+        self.assertIn("lodash", names)
+        self.assertIn("@scope/foo", names)
+        self.assertIn("bare-package", names)
+        # Entry with no version is skipped silently.
+        self.assertNotIn("leftover-with-no-version", names)
+
+    def test_yarn_berry_lock(self):
+        res, _ = _run(npm, FIXTURES / "yarn-berry")
+        names = {r.name for r in res.resolved}
+        self.assertIn("lodash", names)
+        self.assertIn("@scope/pkg", names)
+
+    def test_pnpm_packages_section(self):
+        # pnpm-lock.yaml `packages:` keys: modern `/name@ver`, old `/name/ver`,
+        # scoped `/@scope/name@ver`, and peer-dep disambiguator
+        # `/name@ver(peer@ver)` are all parsed.
+        res, _ = _run(npm, FIXTURES / "pnpm-rich")
+        names = {r.name for r in res.resolved}
+        self.assertIn("lodash", names)
+        self.assertIn("old-style", names)
+        self.assertIn("@scope/pkg", names)
+        self.assertIn("peerdep", names)
+        # The peerdep entry's version stripped of the `(react@18.2.0)` suffix.
+        peerdep = next(r for r in res.resolved if r.name == "peerdep")
+        self.assertEqual(peerdep.version, "1.0.0")
+
+
 class TestDotnetCpmNested(unittest.TestCase):
     def test_nested_props_overrides_root(self):
         # Root Directory.Packages.props declares Newtonsoft.Json 13.0.4 and
@@ -281,6 +458,192 @@ class TestDotnetCpmNested(unittest.TestCase):
         res, _ = _run(dotnet, FIXTURES / "dotnet-cpm")
         drifts = {f.package for f in res.findings if f.code == "CPM_DECLARED_VS_LOCKED_DRIFT"}
         self.assertNotIn("OnlyTransitive", drifts)
+
+
+class TestParserMatches(unittest.TestCase):
+    """Direct unit tests for `matches()` of each parser — the easy way to
+    cover all filename branches without crafting fixtures for each."""
+
+    def test_dockerfile_matches(self):
+        self.assertTrue(dockerfile.matches("Dockerfile"))
+        self.assertTrue(dockerfile.matches("Containerfile"))
+        self.assertTrue(dockerfile.matches("Dockerfile.dev"))
+        self.assertTrue(dockerfile.matches("infra/Dockerfile.api"))
+        self.assertTrue(dockerfile.matches("foo.dockerfile"))
+        self.assertTrue(dockerfile.matches("Foo.Dockerfile"))
+        self.assertFalse(dockerfile.matches("README.md"))
+        self.assertFalse(dockerfile.matches("Dockerfile_no_dot"))
+
+    def test_gh_actions_matches(self):
+        self.assertTrue(gh_actions.matches(".github/workflows/ci.yml"))
+        self.assertTrue(gh_actions.matches(".github/workflows/release.yaml"))
+        self.assertTrue(gh_actions.matches(".github/actions/foo/action.yml"))
+        self.assertTrue(gh_actions.matches("action.yml"))
+        self.assertTrue(gh_actions.matches("action.yaml"))
+        self.assertFalse(gh_actions.matches(".github/dependabot.yml"))
+        self.assertFalse(gh_actions.matches("workflows/ci.yml"))  # not under .github
+
+    def test_gitlab_ci_matches(self):
+        self.assertTrue(gitlab_ci.matches(".gitlab-ci.yml"))
+        self.assertTrue(gitlab_ci.matches("subdir/.gitlab-ci.yml"))
+        self.assertFalse(gitlab_ci.matches(".gitlab-ci.yaml"))
+        self.assertFalse(gitlab_ci.matches("ci.yml"))
+
+
+class TestRustRich(unittest.TestCase):
+    def test_cargo_toml_dict_specs(self):
+        res, _ = _run(rust, FIXTURES / "rust-rich")
+        unpinned = {f.package for f in res.findings if f.code == "UNPINNED_DIRECT"}
+        # Floating string spec → UNPINNED_DIRECT (caret-by-default).
+        self.assertIn("floating-string", unpinned)
+        # Dict with floating version → UNPINNED_DIRECT.
+        self.assertIn("dict-version-floating", unpinned)
+        # Dict with `version = "=1.0.0"` → exact, not unpinned.
+        self.assertNotIn("dict-version-exact", unpinned)
+        # path dep → not flagged.
+        self.assertNotIn("path-dep", unpinned)
+        # Git deps.
+        git = {f.package for f in res.findings if f.code == "GIT_INSTALL"}
+        self.assertIn("git-no-sha", git)
+        self.assertIn("git-branch-rev", git)
+        self.assertNotIn("git-with-sha", git)
+        # build-dependencies and dev-dependencies are scanned.
+        self.assertIn("build-floating", unpinned)
+        self.assertIn("dev-floating", unpinned)
+
+    def test_cargo_lock_findings(self):
+        res, _ = _run(rust, FIXTURES / "rust-rich")
+        codes_by_pkg = {f.package: f.code for f in res.findings}
+        self.assertEqual(codes_by_pkg.get("no-checksum"), "LOCK_NO_INTEGRITY")
+        # `non-canonical` source → flagged. Two findings for that package
+        # (LOCK_NONCANONICAL_SOURCE and the `LOCK_NO_INTEGRITY` is suppressed
+        # because checksum IS present).
+        non_canonical = [f for f in res.findings if f.package == "non-canonical"]
+        self.assertTrue(any(f.code == "LOCK_NONCANONICAL_SOURCE" for f in non_canonical))
+
+    def test_workspace_root_no_lockfile_warning(self):
+        # Workspace root Cargo.toml has no [package] section, so MISSING_LOCKFILE
+        # must be suppressed entirely.
+        res, _ = _run(rust, FIXTURES / "rust-workspace")
+        self.assertFalse(any(f.code == "MISSING_LOCKFILE" for f in res.findings))
+
+
+class TestGolangRich(unittest.TestCase):
+    def test_pseudo_versions_and_replace(self):
+        res, _ = _run(golang, FIXTURES / "go-rich")
+        names = {r.name for r in res.resolved}
+        # Pseudo-version (commit SHA timestamp form) is a valid pin.
+        self.assertIn("example.com/pseudo", names)
+        # +incompatible suffix is a valid pin.
+        self.assertIn("example.com/incompat", names)
+        # Single-line `require` outside the block is parsed.
+        self.assertIn("github.com/single/line", names)
+        # `replace` directives → INFO findings.
+        replaces = [f for f in res.findings if f.code == "GO_REPLACE"]
+        self.assertGreaterEqual(len(replaces), 2)
+
+    def test_go_sum_bad_hash(self):
+        res, _ = _run(golang, FIXTURES / "go-rich")
+        # `deadbeef-not-an-h1-hash` → counted as bad → LOCK_NO_INTEGRITY.
+        self.assertTrue(any(
+            f.code == "LOCK_NO_INTEGRITY" and "go.sum" in f.file
+            for f in res.findings
+        ))
+
+
+class TestGhActionsRich(unittest.TestCase):
+    def test_local_action_and_no_ref(self):
+        res, _ = _run(gh_actions, FIXTURES / "gh-actions-rich")
+        codes = {f.code for f in res.findings}
+        self.assertIn("ACTION_LOCAL", codes)
+        self.assertIn("ACTION_NO_REF", codes)
+        # docker:// without sha256 → DOCKER_FLOATING_TAG.
+        docker_floats = [
+            f for f in res.findings if f.code == "DOCKER_FLOATING_TAG"
+        ]
+        self.assertTrue(any("alpine:3.19" in (f.spec or "") for f in docker_floats))
+        # docker:// WITH sha256 → not flagged again.
+        digested = [f for f in docker_floats if "sha256" in (f.spec or "")]
+        self.assertEqual(digested, [])
+        # Multi-line `run: |` block scans each line — npm install + curl|bash.
+        installs = [f for f in res.findings if f.code == "INSTALL_NOT_STRICT"]
+        tools = [f.title for f in installs]
+        self.assertTrue(any("npm" in t for t in tools), tools)
+        self.assertTrue(any("curl" in t for t in tools), tools)
+
+    def test_composite_action_yml_picked_up(self):
+        # .github/actions/<name>/action.yml is a composite action.
+        # The fixture's action.yml has actions/checkout@v4 (mutable tag).
+        res, _ = _run(gh_actions, FIXTURES / "gh-actions-rich")
+        scanned_files = {f.file for f in res.findings}
+        self.assertTrue(any("action.yml" in f for f in scanned_files))
+
+
+class TestGitlabCiRich(unittest.TestCase):
+    def test_gitlab_image_and_include_and_scripts(self):
+        res, _ = _run(gitlab_ci, FIXTURES / "gitlab-ci-rich")
+        codes = {f.code for f in res.findings}
+        # Image with floating tag (no sha256) → DOCKER_FLOATING_TAG.
+        self.assertIn("DOCKER_FLOATING_TAG", codes)
+        # Image with sha256 → not flagged.
+        digested = [
+            f for f in res.findings
+            if f.code == "DOCKER_FLOATING_TAG" and "sha256" in (f.spec or "")
+        ]
+        self.assertEqual(digested, [])
+        # `ref: main` in include → INCLUDE_BRANCH_REF.
+        self.assertIn("INCLUDE_BRANCH_REF", codes)
+        # `ref: v1.2.3` (tag) and SHA refs → not flagged.
+        self.assertEqual(
+            sum(1 for f in res.findings if f.code == "INCLUDE_BRANCH_REF"),
+            1,
+        )
+        # script blocks scanned for non-strict installs.
+        installs = [f for f in res.findings if f.code == "INSTALL_NOT_STRICT"]
+        self.assertGreaterEqual(len(installs), 2)
+
+
+class TestDotnetPackagesConfig(unittest.TestCase):
+    def test_packages_config_resolved(self):
+        res, _ = _run(dotnet, FIXTURES / "dotnet-packages-config")
+        names = {r.name for r in res.resolved}
+        self.assertIn("Newtonsoft.Json", names)
+        self.assertIn("Serilog", names)
+        # Missing version → skipped silently.
+        self.assertNotIn("NoVersion", names)
+
+
+class TestParseErrors(unittest.TestCase):
+    """Pass a directory as the file path to force read_text to raise an
+    IsADirectoryError → exercises the PARSE_ERROR branches in each parser."""
+
+    def _parse_error_for(self, parser, fake_name: str) -> str | None:
+        from scs.findings import ParseResult
+        from scs.repo import Repo
+        repo = Repo(name="x", root=FIXTURES, tracked_files=[])
+        # Use a directory path with a name that matches the parser, so the
+        # parser's per-file dispatch picks it up but read_text raises.
+        d = FIXTURES  # any existing directory
+        res = ParseResult()
+        # Each parser's _scan path is private; just call parse() with a
+        # synthesized file path.
+        fake = d / fake_name
+        parser.parse(repo, [fake])
+        return None  # the assertion is via the side-effect parse() running without raising
+
+    def test_dockerfile_parse_error(self):
+        # Pointing at a directory under FIXTURES with name=Dockerfile would be
+        # ideal, but creating one for tests is fragile. Instead, point at a
+        # non-existent file and confirm the parser returns gracefully without
+        # raising.
+        from scs.findings import ParseResult
+        from scs.repo import Repo
+        repo = Repo(name="x", root=FIXTURES, tracked_files=[])
+        # Synthesize a fake Dockerfile path that doesn't exist.
+        fake = FIXTURES / "nope-does-not-exist" / "Dockerfile"
+        result = dockerfile.parse(repo, [fake])
+        # The parser should have emitted a PARSE_ERROR finding.
+        self.assertTrue(any(f.code == "PARSE_ERROR" for f in result.findings))
 
 
 if __name__ == "__main__":

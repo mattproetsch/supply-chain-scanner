@@ -1,0 +1,35 @@
+{
+  "name": "fixture-npm-rich",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "exact": "1.2.3",
+    "scoped-exact": "1.2.3-rc.1",
+    "carret": "^4.0.0",
+    "tilde": "~2.0.0",
+    "wildcard": "*",
+    "latest-tag": "latest",
+    "next-tag": "next",
+    "x-tag": "x",
+    "empty-spec": "",
+    "git-no-ref": "git+https://github.com/foo/bar.git",
+    "git-branch-ref": "git+https://github.com/foo/bar.git#main",
+    "git-sha-ref": "git+https://github.com/foo/bar.git#abcdef0123456789abcdef0123456789abcdef01",
+    "git-protocol": "git://github.com/foo/bar.git",
+    "git-ssh": "git@github.com:foo/bar.git",
+    "github-shorthand": "github:foo/bar",
+    "tarball-url": "https://example.com/pkg.tgz",
+    "tarball-http": "http://example.com/pkg.tgz",
+    "file-link": "file:../local",
+    "link-link": "link:../linked",
+    "workspace-link": "workspace:*",
+    "npm-alias-pinned": "npm:other-pkg@1.2.3",
+    "npm-alias-floating": "npm:other-pkg@^1.0",
+    "npm-alias-bare": "npm:other-pkg",
+    "non-string-spec": 42
+  },
+  "devDependencies": {
+    "dev-floating": "^3.0.0"
+  },
+  "optionalDependencies": "not-an-object"
+}

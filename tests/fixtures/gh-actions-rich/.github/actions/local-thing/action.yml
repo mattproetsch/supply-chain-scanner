@@ -1,0 +1,8 @@
+name: local-thing
+description: A composite action — the parser should also pick this up.
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+    - run: echo hi
+      shell: bash

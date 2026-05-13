@@ -1,0 +1,18 @@
+[run]
+source = src/scs
+omit =
+    src/scs/_vendor/*
+    src/scs/__main__.py
+branch = True
+
+[report]
+# Exclude defensive branches that require network / shell side-effects.
+exclude_also =
+    if __name__ == .__main__.:
+    raise NotImplementedError
+    if TYPE_CHECKING:
+    \.\.\.\s*$
+precision = 1
+sort = cover
+skip_empty = True
+show_missing = True

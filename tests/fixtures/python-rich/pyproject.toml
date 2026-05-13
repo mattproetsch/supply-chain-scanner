@@ -1,0 +1,26 @@
+[project]
+name = "fixture-python-rich"
+version = "0.0.0"
+
+[tool.poetry]
+name = "fixture-python-rich"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+exact-pkg = "==1.2.3"
+caret-pkg = "^4.0"
+tilde-pkg = "~2.0"
+git-sha = { git = "https://example.com/foo.git", rev = "abcdef0123456789abcdef0123456789abcdef01" }
+git-branch = { git = "https://example.com/bar.git", rev = "main" }
+git-no-rev = { git = "https://example.com/baz.git" }
+path-pkg = { path = "../local" }
+url-pkg = { url = "https://example.com/wheel.whl" }
+dict-version = { version = "1.0.0" }
+no-handle = true
+
+[tool.poetry.dev-dependencies]
+dev-floating = "^3.0"
+
+[tool.poetry.group.test.dependencies]
+pytest = "^8.0"
+python = "^3.10"

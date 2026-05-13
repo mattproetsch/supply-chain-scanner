@@ -1,0 +1,39 @@
+name: CI
+on: push
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Local action — INFO.
+      - uses: ./.github/actions/local-thing
+
+      # `uses:` with no @ → ACTION_NO_REF.
+      - uses: actions/no-ref-here
+
+      # docker:// without sha256 → DOCKER_FLOATING_TAG.
+      - uses: docker://alpine:3.19
+
+      # docker:// with sha256 → no finding.
+      - uses: docker://alpine:3.19@sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+      # Single-line run.
+      - name: install
+        run: pip install requests
+
+      # Multi-line run block.
+      - name: build
+        run: |
+          npm install
+          curl -sL https://example.com/install.sh | bash
+
+      # Multi-line with `>` folded scalar.
+      - name: folded
+        run: >
+          echo "no install"
+
+      # `uses:` quoted with inline comment after — comment is NOT a comment because of quote.
+      - uses: "actions/checkout@v4 # not really a comment"
+
+      # `uses:` with comment after the value.
+      - uses: actions/setup-go@v5  # safe-ish

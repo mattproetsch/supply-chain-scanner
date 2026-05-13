@@ -1,0 +1,14 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[packages]
+floating-pkg = "*"
+exact-pkg = "==1.2.3"
+caret-pkg = "^4.0"
+dict-version = { version = "==2.0.0", extras = ["foo"] }
+no-version-dict = { extras = ["foo"] }
+non-string = 42
+
+[dev-packages]
+dev-tilde = "~=1.0"

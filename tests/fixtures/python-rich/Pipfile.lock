@@ -1,0 +1,25 @@
+{
+  "_meta": {
+    "hash": {"sha256": "0000"},
+    "pipfile-spec": 6
+  },
+  "default": {
+    "with-hashes": {
+      "version": "==1.0.0",
+      "hashes": ["sha256:aaaa"]
+    },
+    "no-hashes": {
+      "version": "==2.0.0"
+    },
+    "missing-version": {
+      "hashes": ["sha256:bbbb"]
+    },
+    "non-dict-info": "skipped"
+  },
+  "develop": {
+    "dev-locked": {
+      "version": "==0.5.0",
+      "hashes": ["sha256:cccc"]
+    }
+  }
+}

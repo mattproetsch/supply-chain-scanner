@@ -1,0 +1,20 @@
+[package]
+name = "fixture-rust-rich"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+exact = "=1.2.3"
+floating-string = "1.0"
+git-with-sha = { git = "https://example.com/foo.git", rev = "abcdef0123456789abcdef0123456789abcdef01" }
+git-no-sha = { git = "https://example.com/bar.git" }
+git-branch-rev = { git = "https://example.com/baz.git", rev = "main" }
+path-dep = { path = "../local" }
+dict-version-floating = { version = "1.0", features = ["x"] }
+dict-version-exact = { version = "=1.0.0" }
+
+[dev-dependencies]
+dev-floating = "0.5"
+
+[build-dependencies]
+build-floating = "1.0"

@@ -495,8 +495,17 @@ def _scan_pnpm_lock(repo: Repo, path: Path, res: ParseResult) -> None:
         pkgs.append((cur_key, cur_block))
 
     for key, info in pkgs:
-        # key examples:  /lodash@4.17.21    /lodash/4.17.21    /@scope/foo@1.0.0
+        # key examples:
+        #   /lodash@4.17.21
+        #   /lodash/4.17.21                   (older pnpm versions)
+        #   /@scope/foo@1.0.0
+        #   /pkg@1.0.0(peer@2.0.0)            (peer-dep disambiguator)
         s = key.lstrip("/").strip("'\"")
+        # Strip the peer-dep disambiguator BEFORE partitioning — the
+        # `(peer@x)` suffix contains '@' and would otherwise capture
+        # rpartition's split point.
+        if "(" in s:
+            s = s.split("(", 1)[0]
         if "@" in s and not s.startswith("@"):
             name, _, ver = s.rpartition("@")
         elif s.startswith("@"):
@@ -510,9 +519,6 @@ def _scan_pnpm_lock(repo: Repo, path: Path, res: ParseResult) -> None:
             name, _, ver = s.rpartition("/")
         else:
             continue
-        # Strip parentheses (peer-deps disambiguator)
-        if "(" in ver:
-            ver = ver.split("(", 1)[0]
         ver = ver.strip()
         if not name or not ver:
             continue

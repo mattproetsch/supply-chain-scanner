@@ -11,7 +11,7 @@ help:
 	@echo "make malware-db     - compact OSSF dataset into dist/scs-malware-db.bin (separate sidecar)"
 	@echo "make dist           - both: build + malware-db"
 	@echo "make update-malware-data - bump the OSSF submodule to upstream HEAD"
-	@echo "make test           - run unit tests"
+	@echo "make test           - run unit tests with coverage report"
 	@echo "make smoke          - build + scan tests/fixtures/* and open the report"
 	@echo "make lint           - byte-compile everything as a quick sanity check"
 	@echo "make clean          - remove dist/, build/, vendored deps, caches"
@@ -32,8 +32,16 @@ dist: build malware-db
 update-malware-data:
 	git submodule update --remote github.com--ossf--malicious-packages
 
-test: vendor
-	PYTHONPATH=src:tests $(PY) -m unittest discover -s tests -v
+.venv-test/bin/python: requirements-test.txt
+	$(PY) -m venv .venv-test
+	.venv-test/bin/pip install --quiet --upgrade pip
+	.venv-test/bin/pip install --quiet --require-hashes -r requirements-test.txt
+	@touch .venv-test/bin/python
+
+test: vendor .venv-test/bin/python
+	PYTHONPATH=src:tests .venv-test/bin/python -m coverage run -m unittest discover -s tests -v
+	@echo ""
+	@.venv-test/bin/python -m coverage report
 
 smoke: build
 	@if [ -f dist/scs-malware-db.bin ]; then \
@@ -49,5 +57,5 @@ lint:
 	$(PY) -m compileall -q src tests build.py
 
 clean:
-	rm -rf dist/scs.py dist/scs-malware-db.bin build src/scs/_vendor/tomli src/scs/_vendor/packaging
+	rm -rf dist/scs.py dist/scs-malware-db.bin build src/scs/_vendor/tomli src/scs/_vendor/packaging .coverage .venv-test
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +

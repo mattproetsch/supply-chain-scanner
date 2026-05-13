@@ -4,3 +4,41 @@ django==4.2.7
 numpy~=1.24
 git+https://github.com/example/foo.git@main
 sqlalchemy==2.0.25 --hash=sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+# Pip directive lines — must be ignored, not parsed as packages.
+-r other-reqs.txt
+--requirement other-reqs.txt
+-c constraints.txt
+--constraint constraints.txt
+--index-url https://example.com/pypi
+--extra-index-url https://example.com/pypi
+--find-links https://example.com/wheels
+--trusted-host example.com
+
+# Editable install → EDITABLE_INSTALL.
+-e .
+--editable git+https://example.com/foo.git#egg=foo
+
+# Other VCS schemes.
+hg+https://example.com/repo
+svn+https://example.com/repo
+bzr+https://example.com/repo
+
+# Direct URL install.
+https://example.com/wheel.whl
+
+# Pinned but missing --hash → PINNED_NO_HASH (MEDIUM).
+attrs==23.2.0
+
+# Continuation across lines.
+psycopg2-binary==2.9.9 \
+    --hash=sha256:1111111111111111111111111111111111111111111111111111111111111111
+
+# Env marker — should be stripped before classification.
+typing-extensions==4.9.0; python_version < "3.11"
+
+# Bare `#` inside a URL fragment is NOT a comment (PEP 508 needs ` #`).
+git+https://example.com/foo.git@abcdef0123456789abcdef0123456789abcdef01#egg=foo
+
+# Trailing continuation at EOF.
+unbounded-trailing \

@@ -1,0 +1,3 @@
+github.com/spf13/cobra v1.8.0 h1:abcd
+github.com/spf13/cobra v1.8.0/go.mod h1:efgh
+example.com/badhash v1.0.0 deadbeef-not-an-h1-hash
